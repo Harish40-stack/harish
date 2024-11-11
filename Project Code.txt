@@ -1,0 +1,175 @@
+#include <Wire.h>
+#include "MAX30105.h"
+
+// Define the I2C address for the LCD
+#define LCD_ADDRESS 0x27 // Change if your address is different
+
+// Define the MAX30102 object
+MAX30105 particleSensor;
+
+// LCD variables
+const int LCD_WIDTH = 16; // Number of columns on your LCD
+const int LCD_HEIGHT = 2; // Number of rows on your LCD
+
+// Commands for the LCD
+#define LCD_BACKLIGHT 0x08
+#define LCD_NO_BACKLIGHT 0x00
+#define ENABLE_BIT 0x04
+
+// Command bytes
+#define LCD_CLEAR_DISPLAY 0x01
+#define LCD_RETURN_HOME 0x02
+#define LCD_ENTRY_MODE_SET 0x04
+#define LCD_DISPLAY_CONTROL 0x08
+#define LCD_FUNCTION_SET 0x20
+
+void lcdSendCommand(uint8_t command);
+void lcdSendData(uint8_t data);
+void lcdSendByte(uint8_t value, uint8_t mode);
+void lcdWriteNibble(uint8_t nibble);
+void lcdPulseEnable(uint8_t nibble);
+void lcdInit();
+void lcdSetCursor(int col, int row);
+void lcdPrint(const char* message);
+
+// Function prototypes
+void initLCD();
+void printToLCD(const String& text, int row);
+float calculateHeartRate();
+float calculateSpO2();
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin();
+
+    // Initialize the MAX30102 sensor
+    if (!particleSensor.begin()) {
+        Serial.println("MAX30102 not found. Check connections.");
+        while (1);
+    }
+
+    // Initialize the LCD
+    lcdInit(); // Use the lcdInit function for your LCD
+
+    // Configure the sensor
+    particleSensor.setup(); 
+    particleSensor.setPulseAmplitudeRed(0x0A); // Set red LED amplitude
+    particleSensor.setPulseAmplitudeGreen(0x0A); // Set green LED amplitude
+
+    // Display initial message on LCD
+    lcdSetCursor(0, 0);
+    lcdPrint("Initializing...");
+    delay(2000); // Delay to show initializing message
+}
+
+void loop() {
+    long irValue = particleSensor.getIR(); // Read the IR value
+
+    // Check if we have a valid reading
+    if (irValue > 50000) { // Adjust this threshold based on your requirements
+        float bpm = calculateHeartRate();
+        float spo2 = calculateSpO2();
+
+        // Print values to the Serial Monitor
+        Serial.print("IR Value: ");
+        Serial.println(irValue);
+        Serial.print("BPM: ");
+        Serial.println(bpm);
+        Serial.print("SpO2: ");
+        Serial.println(spo2);
+
+        // Display values on the LCD
+        lcdSetCursor(0, 0);
+        lcdPrint(("SpO2: " + String(spo2) + "%").c_str());
+        lcdSetCursor(0, 1);
+        lcdPrint(("BPM: " + String(bpm)).c_str());
+    } else {
+        Serial.println("No valid finger detected.");
+        lcdSetCursor(0, 0);
+        lcdPrint("No Finger");
+        lcdSetCursor(0, 1);
+        lcdPrint("Detected");
+    }
+
+    delay(1000); // Adjust the delay for your needs
+}
+
+// Initialize the LCD
+void lcdInit() {
+    delay(50);               // Wait for more than 40ms after power-up
+    lcdSendByte(0x03, 0);   // Initialize in 4-bit mode
+    delay(5);
+    lcdSendByte(0x03, 0);
+    delayMicroseconds(150);
+    lcdSendByte(0x03, 0);
+    lcdSendByte(0x02, 0);   // Set to 4-bit mode
+
+    // Set number of lines and font
+    lcdSendCommand(LCD_FUNCTION_SET | 0x08 | 0x00); // 4-bit, 2 lines, 5x8 dots
+    // Turn on display, cursor off, blink off
+    lcdSendCommand(LCD_DISPLAY_CONTROL | 0x04);
+    // Clear display
+    lcdSendCommand(LCD_CLEAR_DISPLAY);
+    delay(2);
+    // Entry mode set: increment cursor, no shift
+    lcdSendCommand(LCD_ENTRY_MODE_SET | 0x02);
+}
+
+// LCD commands and data functions
+void lcdSendCommand(uint8_t command) {
+    lcdSendByte(command, 0);
+}
+
+void lcdSendData(uint8_t data) {
+    lcdSendByte(data, 1);
+}
+
+void lcdSendByte(uint8_t value, uint8_t mode) {
+    uint8_t highNibble = value & 0xF0;
+    uint8_t lowNibble = (value << 4) & 0xF0;
+    lcdWriteNibble((highNibble) | mode);
+    lcdWriteNibble((lowNibble) | mode);
+}
+
+void lcdWriteNibble(uint8_t nibble) {
+    Wire.beginTransmission(LCD_ADDRESS);
+    Wire.write(nibble | LCD_BACKLIGHT); // With backlight on
+    Wire.endTransmission();
+    lcdPulseEnable(nibble | LCD_BACKLIGHT);
+}
+
+void lcdPulseEnable(uint8_t nibble) {
+    Wire.beginTransmission(LCD_ADDRESS);
+    Wire.write(nibble | ENABLE_BIT); // Enable high
+    Wire.endTransmission();
+    delayMicroseconds(1);            // Wait for enable pulse
+    Wire.beginTransmission(LCD_ADDRESS);
+    Wire.write(nibble & ~ENABLE_BIT); // Enable low
+    Wire.endTransmission();
+    delayMicroseconds(50);
+}
+
+// Set cursor position
+void lcdSetCursor(int col, int row) {
+    int rowOffsets[] = {0x00, 0x40}; // Memory address offsets for each row
+    lcdSendCommand(0x80 | (col + rowOffsets[row]));
+}
+
+// Print message to LCD
+void lcdPrint(const char* message) {
+    while (*message) {
+        lcdSendData(*message++);
+    }
+}
+
+// Placeholder for heart rate calculation
+float calculateHeartRate() {
+    // Replace with actual heart rate calculation from your MAX30105 sensor
+    return random(60, 100); // Simulated value for demonstration
+}
+
+// Placeholder for SpO2 calculation
+float calculateSpO2() {
+    // Replace with actual SpO2 calculation from your MAX30105 sensor
+    return random(90, 100); // Simulated value for demonstration
+}
